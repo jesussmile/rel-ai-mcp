@@ -86,6 +86,7 @@ export const EVERYDAY_TEST_FILES = [
   "multi-chat-mcp-integration.mjs",
   "multi-chat-task-isolation-unit.mjs",
   "mutation-process-ownership-unit.mjs",
+  "mutation-recovery-checkpoint-unit.mjs",
   "onboarding-config-smoke.mjs",
   "operation-timeline-unit.mjs",
   "output-spill-failure-unit.mjs",
