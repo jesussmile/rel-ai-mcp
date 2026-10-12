@@ -64,6 +64,16 @@ function recordArchive(config, checkpointId) {
 {
   const x = fixture();
   try {
+    assert.equal(inspectWorkspaceMutationRecovery(x.config, 'alpha').recordCount, 0);
+    assert.equal(inspectWorkspaceMutationRecovery(x.config, 'alpha').blocked, false);
+    expectedError(() => prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial)),
+      'RECOVERY_NO_RECORDS');
+  } finally { x.cleanup(); }
+}
+
+{
+  const x = fixture();
+  try {
     const file = x.addRecord();
     const report = inspectWorkspaceMutationRecovery(x.config, 'alpha');
     assert.equal(report.recordCount, 1);
