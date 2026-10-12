@@ -1,7 +1,8 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { getStateDir } from './statePaths.js';
 import { canonicalWorkspaceAuthority } from './workspaceOperationQueue.js';
@@ -14,6 +15,7 @@ const CHECKPOINT_ID = /^[0-9a-f]{32}$/u;
 const HEX64 = /^[0-9a-f]{64}$/u;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const RECORD_NAME = /^[A-Za-z0-9_-]{1,200}\.json$/u;
+const execFileAsync = promisify(execFile);
 
 function reject(code, message) {
   throw Object.assign(new Error(message), { code });
@@ -28,31 +30,34 @@ function hash(value) {
  * reboot. Missing or inaccessible OS facts fail closed; neither user-entered
  * timestamps nor PID disappearance is accepted as reboot evidence.
  */
-function observeMutationRecoveryBoot({
+async function observeMutationRecoveryBoot({
   platform = process.platform,
-  exec = (command, argv) => execFileSync(command, argv, {
-    encoding: 'utf8', timeout: 5000, maxBuffer: 256 * 1024,
-    stdio: ['ignore', 'pipe', 'pipe']
-  }),
-  read = file => fs.readFileSync(file, 'utf8')
+  exec = async (command, argv) => {
+    const { stdout } = await execFileAsync(command, argv, {
+      encoding: 'utf8', timeout: 5000, maxBuffer: 256 * 1024,
+      windowsHide: true
+    });
+    return stdout;
+  },
+  read = file => fs.promises.readFile(file, 'utf8')
 } = {}) {
   let host;
   let boot;
   try {
     if (platform === 'darwin') {
-      const registry = exec('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']);
+      const registry = await exec('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']);
       host = /"IOPlatformUUID"\s*=\s*"([0-9a-f-]+)"/iu.exec(registry)?.[1];
       for (const name of ['kern.bootsessionuuid', 'kern.bootuuid']) {
         try {
-          const value = exec('/usr/sbin/sysctl', ['-n', name]).trim();
+          const value = (await exec('/usr/sbin/sysctl', ['-n', name])).trim();
           if (UUID.test(value)) { boot = value; break; }
         } catch { /* Another documented boot UUID may be available. */ }
       }
       if (!UUID.test(host || '') || !UUID.test(boot || ''))
         throw new Error('Invalid native macOS identity');
     } else if (platform === 'linux') {
-      host = read('/etc/machine-id').trim();
-      boot = read('/proc/sys/kernel/random/boot_id').trim();
+      host = (await read('/etc/machine-id')).trim();
+      boot = (await read('/proc/sys/kernel/random/boot_id')).trim();
       if (!/^[0-9a-f]{32}$/iu.test(host) || !UUID.test(boot))
         throw new Error('Invalid native Linux identity');
     } else {
@@ -324,12 +329,12 @@ function inspectWorkspaceMutationRecovery(config, alias) {
 }
 
 /** Prepare durable exact-record evidence BEFORE the OS reboot. */
-function prepareWorkspaceMutationRecovery(config, alias, options = {}) {
+async function prepareWorkspaceMutationRecovery(config, alias, options = {}) {
   const context = workspaceContext(config, alias);
   const records = exactInventory(context);
   if (!records.length)
     reject('RECOVERY_NO_RECORDS', 'There are no uncertain process records to reconcile.');
-  const boot = (options.observeBoot || observeMutationRecoveryBoot)();
+  const boot = await (options.observeBoot || observeMutationRecoveryBoot)();
   const id = crypto.randomBytes(16).toString('hex');
   const paths = checkpointDir(context, id, true);
   writeExclusive(path.join(paths.directory, 'checkpoint.json'), {
@@ -346,10 +351,10 @@ function prepareWorkspaceMutationRecovery(config, alias, options = {}) {
 }
 
 /** Preview or archive exact records after a verified same-host reboot. */
-function reconcileWorkspaceMutationRecovery(config, alias, id, options = {}) {
+async function reconcileWorkspaceMutationRecovery(config, alias, id, options = {}) {
   const context = workspaceContext(config, alias);
   const paths = readCheckpoint(context, id);
-  const boot = (options.observeBoot || observeMutationRecoveryBoot)();
+  const boot = await (options.observeBoot || observeMutationRecoveryBoot)();
   const report = verifyAfterReboot(context, paths, boot);
   const base = {
     checkpointId: id, workspace: alias, total: report.checkpoint.records.length,
