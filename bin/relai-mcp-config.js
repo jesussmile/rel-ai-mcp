@@ -75,15 +75,15 @@ recovery.command('inspect <alias>')
   .action(alias => printJson(inspectWorkspaceMutationRecovery(readConfig(), alias)));
 recovery.command('prepare <alias>')
   .description('Durably capture exact records and the current boot identity before rebooting.')
-  .action(alias => printJson(prepareWorkspaceMutationRecovery(readConfig(), alias)));
+  .action(async alias => printJson(await prepareWorkspaceMutationRecovery(readConfig(), alias)));
 recovery.command('preview <alias> <checkpoint-id>')
   .description('After reboot, verify the machine, boot and unchanged exact record inventory.')
-  .action((alias, checkpointId) => printJson(reconcileWorkspaceMutationRecovery(
+  .action(async (alias, checkpointId) => printJson(await reconcileWorkspaceMutationRecovery(
     readConfig(), alias, checkpointId)));
 recovery.command('apply <alias> <checkpoint-id>')
   .description('Archive only checkpoint-verified records after a full same-host OS reboot.')
   .requiredOption('--confirm', 'Explicitly acknowledge archival of the exact checked records.')
-  .action((alias, checkpointId, options) => printJson(reconcileWorkspaceMutationRecovery(
+  .action(async (alias, checkpointId, options) => printJson(await reconcileWorkspaceMutationRecovery(
     readConfig(), alias, checkpointId, { apply: true, confirm: options.confirm === true })));
 
 const workspace = program.command('workspace').description('Manage authorized workspaces.');
