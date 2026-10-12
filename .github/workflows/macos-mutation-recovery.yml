@@ -35,4 +35,4 @@ jobs:
         run: node bin/relai-mcp-config.js mutation-recovery --help
       - name: Inspect native boot identity availability
         run: |
-          node --input-type=module -e 'import { observeMutationRecoveryBoot } from "./src/mutationRecoveryCheckpoint.js"; const result = observeMutationRecoveryBoot(); if (result.platform !== "darwin" || result.hostHash.length !== 64 || result.bootHash.length !== 64) process.exitCode = 1; else console.log("macOS machine/boot identity available; raw identities omitted.");'
+          node --input-type=module -e 'import { observeMutationRecoveryBoot } from "./src/mutationRecoveryCheckpoint.js"; const result = await observeMutationRecoveryBoot(); if (result.platform !== "darwin" || result.hostHash.length !== 64 || result.bootHash.length !== 64) process.exitCode = 1; else console.log("macOS machine/boot identity available; raw identities omitted.");'
