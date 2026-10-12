@@ -1,0 +1,38 @@
+name: macOS mutation recovery regression
+
+on:
+  pull_request:
+    paths:
+      - 'src/mutationRecoveryCheckpoint.js'
+      - 'bin/relai-mcp-config.js'
+      - 'test/mutation-recovery-checkpoint-unit.mjs'
+      - 'test/everyday-manifest.js'
+      - '.github/workflows/macos-mutation-recovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-macos:
+    name: macOS recovery (Node 26)
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Validate JavaScript syntax
+        run: |
+          node --check src/mutationRecoveryCheckpoint.js
+          node --check bin/relai-mcp-config.js
+          node --check test/mutation-recovery-checkpoint-unit.mjs
+      - name: Test exact-record recovery and failure paths
+        run: node test/mutation-recovery-checkpoint-unit.mjs
+      - name: Verify operator CLI is integrated
+        run: node bin/relai-mcp-config.js mutation-recovery --help
+      - name: Inspect native boot identity availability
+        run: |
+          node --input-type=module -e 'import { observeMutationRecoveryBoot } from "./src/mutationRecoveryCheckpoint.js"; const result = observeMutationRecoveryBoot(); if (result.platform !== "darwin" || result.hostHash.length !== 64 || result.bootHash.length !== 64) process.exitCode = 1; else console.log("macOS machine/boot identity available; raw identities omitted.");'
