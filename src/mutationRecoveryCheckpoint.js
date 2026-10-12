@@ -146,8 +146,8 @@ function workspaceContext(config, alias) {
     'path:' + (process.platform === 'win32' ? physical.toLowerCase() : physical)
   ])];
   const state = getStateDir(config);
-  if (!path.isAbsolute(state) || fs.realpathSync.native(state) !== path.resolve(state))
-    reject('RECOVERY_STATE_ROOT_AMBIGUOUS', 'State directory must be an absolute canonical path.');
+  if (!path.isAbsolute(state))
+    reject('RECOVERY_STATE_ROOT_AMBIGUOUS', 'State directory must have an absolute path.');
   checkedDirectory(state);
   const mutationRoot = path.join(state, 'active-mutations-v3');
   checkedDirectory(mutationRoot);
