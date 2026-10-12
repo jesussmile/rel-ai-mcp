@@ -25,6 +25,43 @@ The current recovery inventory in `src/mutationProcessOwnership.js` is intention
 - Concurrent writes cannot race the final verification/archival.
 - Mac-native host/boot probes and packaging verified; Linux and Windows behavior unchanged.
 
-## Current implementation status
+## Implemented operator commands (repair branch)
 
-This document is a design and regression checklist, **not an integrated or validated patch**. No recovery lock has been cleared. The existing installed application and FlightCanvasGlobe project are unchanged. Do not deploy a recovery build until its CLI/API integration, focused tests, Mac packaging, and operator review are complete.
+The draft implementation adds a **local terminal CLI**, not a remotely callable MCP
+unlock operation. It uses Rel.AI's configured workspace authority and private local
+state. No callers can supply host/boot evidence through command-line flags.
+
+```bash
+node bin/relai-mcp-config.js mutation-recovery inspect flightcanvasglobe
+node bin/relai-mcp-config.js mutation-recovery prepare flightcanvasglobe
+# Record the checkpointId from the result. Safely close apps and fully reboot macOS.
+node bin/relai-mcp-config.js mutation-recovery preview flightcanvasglobe <checkpointId>
+node bin/relai-mcp-config.js mutation-recovery apply flightcanvasglobe <checkpointId> --confirm
+```
+
+`inspect` reports a read-only inventory. `prepare` durably checkpoints the precise
+v3 ownership record identities and OS host/boot hashes, but does **not** alter locks.
+After a full reboot, `preview` rejects a mismatched host, unchanged boot identity,
+changed or unbound recovery records, new records, invalid paths and incomplete
+inventories. `apply` additionally requires `--confirm`, durably records a recovery
+attempt, and **archives** the verified original bytes without discarding them.
+A partial archive can be inspected or finished after an interrupted CLI call.
+No process is killed and no interrupted task is marked completed.
+
+The archive is stored in the Rel.AI local state directory under
+`mutation-recovery-checkpoints/<checkpointId>/records`. Never manually delete
+recovery files to make the dashboard turn green. If additional workspace mutation
+locks remain, they still require independent reconciliation.
+
+## Validation and deployment status
+
+- Dedicated Node 26 macOS CI verified syntax, the recovery regression suite,
+  CLI help integration, and access to native machine/boot identity.
+- Full repository CI is tracked separately; a green focused workflow does not
+  mean every existing repository test or desktop package passed.
+- The repair currently lives **only in the fork's draft branch**. The installed
+  Rel.AI Mac application has **not** been modified, repaired or restarted by
+  these GitHub changes.
+- Installing or running the operator CLI on the real user's state must wait for
+  full review and macOS packaging. The existing FlightCanvasGlobe changes and
+  interrupted Unity ownership record remain untouched.
