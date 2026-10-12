@@ -47,8 +47,8 @@ function fixture() {
   };
 }
 
-function expectedError(call, code) {
-  assert.throws(call, error => error?.code === code,
+async function expectedError(call, code) {
+  await assert.rejects(async () => call(), error => error?.code === code,
     'Expected refusal: ' + code);
 }
 
@@ -66,7 +66,7 @@ function recordArchive(config, checkpointId) {
   try {
     assert.equal(inspectWorkspaceMutationRecovery(x.config, 'alpha').recordCount, 0);
     assert.equal(inspectWorkspaceMutationRecovery(x.config, 'alpha').blocked, false);
-    expectedError(() => prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial)),
+    await expectedError(() => prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial)),
       'RECOVERY_NO_RECORDS');
   } finally { x.cleanup(); }
 }
@@ -78,34 +78,34 @@ function recordArchive(config, checkpointId) {
     const report = inspectWorkspaceMutationRecovery(x.config, 'alpha');
     assert.equal(report.recordCount, 1);
     assert.equal(report.blocked, true);
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     assert.ok(/^[0-9a-f]{32}$/u.test(prepared.checkpointId));
     assert.equal(fs.existsSync(file), true, 'Preparation must not remove the ownership lock.');
 
-    expectedError(() => reconcileWorkspaceMutationRecovery(
+    await expectedError(() => reconcileWorkspaceMutationRecovery(
       x.config, 'alpha', prepared.checkpointId, onBoot(initial)), 'RECOVERY_REBOOT_REQUIRED');
-    expectedError(() => reconcileWorkspaceMutationRecovery(
+    await expectedError(() => reconcileWorkspaceMutationRecovery(
       x.config, 'alpha', prepared.checkpointId, onBoot(differentHost)), 'RECOVERY_HOST_MISMATCH');
 
-    const dryRun = reconcileWorkspaceMutationRecovery(
+    const dryRun = await reconcileWorkspaceMutationRecovery(
       x.config, 'alpha', prepared.checkpointId, onBoot(rebooted));
     assert.equal(dryRun.remaining, 1);
     assert.equal(dryRun.applied, false);
-    expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    await expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, { ...onBoot(rebooted), apply: true }),
     'RECOVERY_CONFIRMATION_REQUIRED');
     assert.equal(fs.existsSync(file), true);
 
     const { archived } = recordArchive(x.config, prepared.checkpointId);
     const before = fs.readFileSync(file);
-    const applied = reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    const applied = await reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, { ...onBoot(rebooted), apply: true, confirm: true });
     assert.equal(applied.applied, true);
     assert.equal(applied.remaining, 0);
     assert.equal(fs.existsSync(file), false, 'Only the exact verified record is archived.');
     assert.deepEqual(fs.readFileSync(archived), before);
     assert.deepEqual(listMutationProcessRecords(x.config, 'alpha'), []);
-    const repeat = reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    const repeat = await reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, { ...onBoot(rebooted), apply: true, confirm: true });
     assert.equal(repeat.archived, 1, 'Recovery can be resumed after a completion-receipt interruption.');
   } finally { x.cleanup(); }
@@ -115,9 +115,9 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     const original = x.addRecord();
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     fs.appendFileSync(original, '\n');
-    expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    await expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, onBoot(rebooted)), 'RECOVERY_RECORD_CHANGED');
     assert.equal(fs.existsSync(original), true);
   } finally { x.cleanup(); }
@@ -127,11 +127,11 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     const original = x.addRecord();
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     const saved = original + '.bak';
     fs.renameSync(original, saved);
     fs.symlinkSync(saved, original);
-    expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    await expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, onBoot(rebooted)), 'RECOVERY_RECORD_UNBOUND');
   } finally { x.cleanup(); }
 }
@@ -140,9 +140,9 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     x.addRecord();
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     x.addRecord(42022);
-    expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    await expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, onBoot(rebooted)), 'RECOVERY_INVENTORY_CHANGED');
     assert.equal(listMutationProcessRecords(x.config, 'alpha').length, 2);
   } finally { x.cleanup(); }
@@ -152,9 +152,9 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     const original = x.addRecord();
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     fs.unlinkSync(original);
-    expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    await expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, onBoot(rebooted)), 'RECOVERY_RECORD_MISSING');
   } finally { x.cleanup(); }
 }
@@ -163,11 +163,11 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     const original = x.addRecord();
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     const { archived } = recordArchive(x.config, prepared.checkpointId);
     // Crash simulation: the first atomic rename happened, but the CLI never returned.
     fs.renameSync(original, archived);
-    const remaining = reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    const remaining = await reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, onBoot(rebooted));
     assert.equal(remaining.remaining, 0);
     assert.equal(remaining.archived, 1);
@@ -179,7 +179,7 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     x.addRecord();
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     const unrelated = path.join(x.temporary, 'other');
     fs.mkdirSync(unrelated, { mode: 0o700 });
     fs.mkdirSync(path.join(unrelated, '.git'), { mode: 0o700 });
@@ -189,7 +189,7 @@ function recordArchive(config, checkpointId) {
       markCurrentMutationProcessUncertain(42023, 'Independent fixture process.');
       return file;
     });
-    const applied = reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    const applied = await reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, { ...onBoot(rebooted), apply: true, confirm: true });
     assert.equal(applied.applied, true);
     assert.ok(fs.existsSync(foreign), 'Other workspace ownership must remain intact.');
@@ -201,11 +201,11 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     x.addRecord();
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     const archiveFile = path.join(x.stateDir, 'mutation-recovery-checkpoints',
       prepared.checkpointId, 'records', 'unexpected.json');
     fs.writeFileSync(archiveFile, '{}', { mode: 0o600 });
-    expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    await expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, onBoot(rebooted)), 'RECOVERY_ARCHIVE_CHANGED');
   } finally { x.cleanup(); }
 }
@@ -214,10 +214,10 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     x.addRecord();
-    const prepared = prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial));
     const { checkpointFolder } = recordArchive(x.config, prepared.checkpointId);
     fs.appendFileSync(path.join(checkpointFolder, 'checkpoint.json'), '\nnot-json');
-    expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+    await expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
       prepared.checkpointId, onBoot(rebooted)), 'RECOVERY_INVALID_JSON');
   } finally { x.cleanup(); }
 }
@@ -226,14 +226,14 @@ function recordArchive(config, checkpointId) {
   const x = fixture();
   try {
     x.addRecord();
-    expectedError(() => prepareWorkspaceMutationRecovery(x.config, 'unknown', onBoot(initial)),
+    await expectedError(() => prepareWorkspaceMutationRecovery(x.config, 'unknown', onBoot(initial)),
       'RECOVERY_WORKSPACE_REQUIRED');
     const legacyFolder = path.join(x.stateDir, 'active-mutations', key('legacy'));
     fs.mkdirSync(path.dirname(legacyFolder), { recursive: true, mode: 0o700 });
     fs.mkdirSync(legacyFolder, { mode: 0o700 });
     fs.writeFileSync(path.join(legacyFolder, 'legacy.json'),
       JSON.stringify({ schemaVersion: 1, pid: 42024, workspace: 'old' }), { mode: 0o600 });
-    expectedError(() => prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial)),
+    await expectedError(() => prepareWorkspaceMutationRecovery(x.config, 'alpha', onBoot(initial)),
       'RECOVERY_RECORD_UNBOUND');
   } finally { x.cleanup(); }
 }
@@ -241,7 +241,7 @@ function recordArchive(config, checkpointId) {
 {
   // Real kernel inputs, but with injectable command/read adapters: no fake data
   // injection enters the operator CLI.
-  const expected = observeMutationRecoveryBoot({
+  const expected = await observeMutationRecoveryBoot({
     platform: 'darwin',
     exec(file, args) {
       if (file.endsWith('/ioreg')) return '"IOPlatformUUID" = "11111111-2222-3333-4444-555555555555"';
@@ -253,10 +253,10 @@ function recordArchive(config, checkpointId) {
   assert.equal(expected.platform, 'darwin');
   assert.equal(expected.hostHash.length, 64);
   assert.equal(expected.bootHash.length, 64);
-  expectedError(() => observeMutationRecoveryBoot({
+  await expectedError(() => observeMutationRecoveryBoot({
     platform: 'darwin', exec() { throw new Error('Sandbox denied'); }
   }), 'RECOVERY_BOOT_UNAVAILABLE');
-  expectedError(() => observeMutationRecoveryBoot({
+  await expectedError(() => observeMutationRecoveryBoot({
     platform: 'win32'
   }), 'RECOVERY_PLATFORM_UNSUPPORTED');
 }
