@@ -150,7 +150,9 @@ function workspaceContext(config, alias) {
     reject('RECOVERY_STATE_ROOT_AMBIGUOUS', 'State directory must have an absolute path.');
   checkedDirectory(state);
   const mutationRoot = path.join(state, 'active-mutations-v3');
-  checkedDirectory(mutationRoot);
+  // An unused workspace has no mutation directory. Inspect must report zero
+  // records rather than require a previous mutating command to have run.
+  if (fs.existsSync(mutationRoot)) checkedDirectory(mutationRoot);
   return {
     config, alias, authorities, state, mutationRoot,
     checkpoints: path.join(state, 'mutation-recovery-checkpoints')
