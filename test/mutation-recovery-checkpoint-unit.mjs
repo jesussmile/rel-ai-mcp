@@ -238,6 +238,91 @@ function recordArchive(config, checkpointId) {
   } finally { x.cleanup(); }
 }
 
+// Reproduce the observed Darwin reboot: historical st_dev differs while the
+// original inode and bytes survive. Only synthetic checkpoint files are edited.
+// The operator's real checkpoint must never be rewritten to pass a check.
+const darwinInitial = { ...initial, platform: 'darwin' };
+const darwinRebooted = { ...rebooted, platform: 'darwin' };
+const renumberCases = [
+  ['recover', null],
+  ['same-boot', 'RECOVERY_REBOOT_REQUIRED'],
+  ['different-host', 'RECOVERY_HOST_MISMATCH'],
+  ['changed-bytes', 'RECOVERY_RECORD_CHANGED'],
+  ['replaced-inode', 'RECOVERY_RECORD_CHANGED'],
+  ['symlink', 'RECOVERY_RECORD_UNBOUND'],
+  ['new-record', 'RECOVERY_INVENTORY_CHANGED'],
+  ['missing-confirmation', 'RECOVERY_CONFIRMATION_REQUIRED'],
+  ['partial-archive', null],
+  ['linux-device-change', 'RECOVERY_RECORD_CHANGED']
+];
+for (const [scenario, errorCode] of renumberCases) {
+  const x = fixture();
+  try {
+    const file = x.addRecord();
+    const linux = scenario === 'linux-device-change';
+    const prepared = await prepareWorkspaceMutationRecovery(x.config, 'alpha',
+      onBoot(linux ? initial : darwinInitial));
+    const { checkpointFolder, checkpoint, archived } = recordArchive(x.config, prepared.checkpointId);
+    const currentDevice = String(fs.lstatSync(file).dev);
+    checkpoint.records[0].dev = String(BigInt(currentDevice) + 2n);
+    const checkpointFile = path.join(checkpointFolder, 'checkpoint.json');
+    fs.writeFileSync(checkpointFile, JSON.stringify(checkpoint), { mode: 0o600 });
+    const checkpointBefore = fs.readFileSync(checkpointFile);
+    const recordBefore = fs.readFileSync(file);
+    let boot = linux ? rebooted : darwinRebooted;
+    if (scenario === 'same-boot') boot = darwinInitial;
+    if (scenario === 'different-host') boot = { ...darwinRebooted, hostHash: 'e'.repeat(64) };
+    if (scenario === 'changed-bytes') fs.appendFileSync(file, '\n');
+    if (scenario === 'replaced-inode') {
+      fs.renameSync(file, file + '.original');
+      fs.writeFileSync(file, recordBefore, { mode: 0o600 });
+      assert.notEqual(String(fs.lstatSync(file).ino), checkpoint.records[0].ino);
+    }
+    if (scenario === 'symlink') {
+      fs.renameSync(file, file + '.original');
+      fs.symlinkSync(file + '.original', file);
+    }
+    if (scenario === 'new-record') x.addRecord(42029);
+    if (scenario === 'partial-archive') fs.renameSync(file, archived);
+    const previewOptions = {
+      ...onBoot(boot),
+      ...(scenario === 'missing-confirmation' ? { apply: true } : {})
+    };
+    if (errorCode) {
+      await expectedError(() => reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+        prepared.checkpointId, previewOptions), errorCode);
+      assert.ok(fs.existsSync(file), scenario + ' must not retire the record');
+      assert.equal(fs.existsSync(archived), false, scenario + ' must not archive');
+    } else {
+      const preview = await reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+        prepared.checkpointId, previewOptions);
+      assert.equal(preview.applied, false);
+      assert.equal(preview.deviceRebindings.length, 1);
+      assert.equal(preview.deviceRebindings[0].previousDevice, checkpoint.records[0].dev);
+      assert.equal(preview.deviceRebindings[0].currentDevice, currentDevice);
+      assert.equal(preview.remaining, scenario === 'partial-archive' ? 0 : 1);
+      if (scenario === 'recover') assert.deepEqual(fs.readFileSync(file), recordBefore);
+      const applied = await reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+        prepared.checkpointId, { ...onBoot(boot), apply: true, confirm: true });
+      assert.equal(applied.applied, true);
+      assert.equal(applied.archived, 1);
+      assert.equal(applied.remaining, 0);
+      assert.deepEqual(fs.readFileSync(archived), recordBefore);
+      const repeat = await reconcileWorkspaceMutationRecovery(x.config, 'alpha',
+        prepared.checkpointId, { ...onBoot(boot), apply: true, confirm: true });
+      assert.equal(repeat.remaining, 0);
+      if (scenario === 'recover') {
+        const attempt = fs.readdirSync(checkpointFolder).find(name => name.startsWith('attempt-'));
+        const audit = JSON.parse(fs.readFileSync(path.join(checkpointFolder, attempt), 'utf8'));
+        assert.deepEqual(audit.deviceRebindings, preview.deviceRebindings);
+      }
+    }
+    assert.deepEqual(fs.readFileSync(checkpointFile), checkpointBefore,
+      'Recovery must not rewrite the pre-reboot checkpoint');
+  } finally { x.cleanup(); }
+}
+console.log('Darwin device-renumbering regression: 10 scenarios passed, including refusal and archival replay.');
+
 {
   // Real kernel inputs, but with injectable command/read adapters: no fake data
   // injection enters the operator CLI.

@@ -269,14 +269,36 @@ function existsNoFollow(file) {
   catch (error) { if (error?.code === 'ENOENT') return false; throw error; }
 }
 
-function checkedMatchingFile(file, entry) {
+function checkedMatchingFile(file, entry, expectedDevice = entry.dev) {
   const fileState = readExactFile(file);
   const data = parseJson(fileState.bytes);
-  if (fileState.digest !== entry.digest ||
-      fileState.dev !== entry.dev || fileState.ino !== entry.ino ||
-      data.schemaVersion !== 3 || data.authority !== entry.authority ||
+  if (fileState.digest !== entry.digest)
+    reject('RECOVERY_RECORD_CHANGED', 'Captured record contents changed.');
+  if (fileState.ino !== entry.ino)
+    reject('RECOVERY_RECORD_CHANGED', 'Captured record inode changed; the file was replaced.');
+  if (fileState.dev !== expectedDevice)
+    reject('RECOVERY_RECORD_CHANGED', 'Captured record is not on the verified current device.');
+  if (data.schemaVersion !== 3 || data.authority !== entry.authority ||
       data.authorityStatus !== 'bound' || data.terminationUncertain !== true)
-    reject('RECOVERY_RECORD_CHANGED', 'Captured record was replaced or altered.');
+    reject('RECOVERY_RECORD_CHANGED', 'Captured record ownership changed.');
+  return fileState;
+}
+
+// Called only after same-host/changed-boot verification. Darwin st_dev is a
+// mount-time number, not a persistent volume UUID: a reboot can renumber it.
+// Bind all current recovery paths to the state directory's current device;
+// never rewrite historical checkpoint metadata or relax inode/hash checks.
+function currentRecoveryDevice(context, state) {
+  const device = String(fs.lstatSync(checkedDirectory(context.state)).dev);
+  for (const directory of [context.mutationRoot, context.checkpoints, state.directory, state.archive]) {
+    if (String(fs.lstatSync(checkedDirectory(directory)).dev) !== device)
+      reject('RECOVERY_VOLUME_MISMATCH', 'Recovery directories span different current devices.');
+  }
+  const checkpointFile = readExactFile(
+    path.join(state.directory, 'checkpoint.json'), MAX_CHECKPOINT_BYTES);
+  if (checkpointFile.dev !== device)
+    reject('RECOVERY_VOLUME_MISMATCH', 'Checkpoint and recovery state are on different current devices.');
+  return device;
 }
 
 function verifyAfterReboot(context, state, currentBoot) {
@@ -287,6 +309,7 @@ function verifyAfterReboot(context, state, currentBoot) {
   if (currentBoot.bootHash === checkpoint.boot.bootHash)
     reject('RECOVERY_REBOOT_REQUIRED',
       'A full OS reboot is required after preparing the checkpoint; PID disappearance is insufficient.');
+  const currentDevice = currentBoot.platform === 'darwin' ? currentRecoveryDevice(context, state) : null;
   const active = exactInventory(context);
   const expected = new Set(checkpoint.records.map(r => r.authority + '/' + r.filename));
   const activeKeys = new Set(active.map(r => r.authority + '/' + r.filename));
@@ -294,6 +317,7 @@ function verifyAfterReboot(context, state, currentBoot) {
     reject('RECOVERY_INVENTORY_CHANGED', 'New process records appeared after preparation.');
   const archiveNames = fs.readdirSync(archive);
   const remaining = [];
+  const deviceRebindings = [];
   for (const item of checkpoint.records) {
     const relative = hash(item.authority) + '--' + item.filename;
     const archived = path.join(archive, relative);
@@ -306,14 +330,16 @@ function verifyAfterReboot(context, state, currentBoot) {
     const key = item.authority + '/' + item.filename;
     if (hasOriginal !== activeKeys.has(key))
       reject('RECOVERY_INVENTORY_CHANGED', 'On-disk record and inventory disagree.');
-    checkedMatchingFile(hasOriginal ? original : archived, item);
-    if (hasOriginal) remaining.push({ item, original, archived });
+    const verified = checkedMatchingFile(hasOriginal ? original : archived, item, currentDevice ?? item.dev);
+    if (verified.dev !== item.dev)
+      deviceRebindings.push({ record: relative, previousDevice: item.dev, currentDevice: verified.dev });
+    if (hasOriginal) remaining.push({ item, original, archived, expectedDevice: verified.dev });
   }
   const allowedArchives = new Set(checkpoint.records.map(
     item => hash(item.authority) + '--' + item.filename));
   if (archiveNames.some(name => !allowedArchives.has(name)))
     reject('RECOVERY_ARCHIVE_CHANGED', 'Unexpected file in the checkpoint archive.');
-  return { remaining, checkpoint, archive };
+  return { remaining, checkpoint, archive, deviceRebindings };
 }
 
 /** Read-only overview; no PID absence or elapsed-time inference is made. */
@@ -360,7 +386,8 @@ async function reconcileWorkspaceMutationRecovery(config, alias, id, options = {
     checkpointId: id, workspace: alias, total: report.checkpoint.records.length,
     remaining: report.remaining.length,
     archived: report.checkpoint.records.length - report.remaining.length,
-    evidence: 'same-host-os-boot-changed', applied: false
+    evidence: 'same-host-os-boot-changed', applied: false,
+    deviceRebindings: report.deviceRebindings
   };
   if (!options.apply) return base;
   if (options.confirm !== true)
@@ -372,11 +399,16 @@ async function reconcileWorkspaceMutationRecovery(config, alias, id, options = {
     'attempt-' + crypto.randomBytes(12).toString('hex') + '.json');
   writeExclusive(audit, {
     version: 1, checkpointId: id, verifiedAt: new Date().toISOString(),
-    boot, records: report.remaining.map(r => hash(r.item.authority) + '--' + r.item.filename)
+    boot, records: report.remaining.map(r => hash(r.item.authority) + '--' + r.item.filename),
+    deviceRebindings: report.deviceRebindings
   });
   syncDirectory(paths.directory);
-  for (const { item, original, archived } of report.remaining) {
-    checkedMatchingFile(original, item);
+  for (const { item, original, archived, expectedDevice } of report.remaining) {
+    // Recheck against the device observed during this invocation, not the old boot.
+    // readExactFile still pins device/inode across every individual file read.
+    checkedMatchingFile(original, item, expectedDevice);
+    if (String(fs.lstatSync(checkedDirectory(report.archive)).dev) !== expectedDevice)
+      reject('RECOVERY_VOLUME_MISMATCH', 'Archive device changed during recovery.');
     if (existsNoFollow(archived))
       reject('RECOVERY_ARCHIVE_CHANGED', 'An archive entry appeared during reconciliation.');
     // Moving, never deleting, keeps the exact original bytes for audit/reversal.
