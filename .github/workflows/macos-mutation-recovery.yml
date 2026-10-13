@@ -1,0 +1,79 @@
+name: macOS mutation recovery regression
+
+on:
+  pull_request:
+    paths:
+      - 'src/mutationRecoveryCheckpoint.js'
+      - 'bin/relai-mcp-config.js'
+      - 'test/mutation-recovery-checkpoint-unit.mjs'
+      - 'test/everyday-manifest.js'
+      - '.github/workflows/macos-mutation-recovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-macos:
+    name: macOS recovery (Node 26)
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Validate JavaScript syntax
+        run: |
+          node --check src/mutationRecoveryCheckpoint.js
+          node --check bin/relai-mcp-config.js
+          node --check test/mutation-recovery-checkpoint-unit.mjs
+      - name: Test exact-record recovery and failure paths
+        run: node test/mutation-recovery-checkpoint-unit.mjs
+      - name: Verify operator CLI is integrated
+        run: node bin/relai-mcp-config.js mutation-recovery --help
+      - name: Inspect native boot identity availability
+        run: |
+          node --input-type=module -e 'import { observeMutationRecoveryBoot } from "./src/mutationRecoveryCheckpoint.js"; const result = await observeMutationRecoveryBoot(); if (result.platform !== "darwin" || result.hostHash.length !== 64 || result.bootHash.length !== 64) process.exitCode = 1; else console.log("macOS machine/boot identity available; raw identities omitted.");'
+
+  package-macos:
+    name: macOS packaged QA (unsigned)
+    needs: recovery-macos
+    runs-on: macos-15-intel
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            electron/package-lock.json
+      - name: Install source dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install Electron build dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: electron
+      - name: Prepare Electron runtime
+        run: node electron/node_modules/electron/install.js
+      - name: Build isolated macOS QA application
+        run: npm run electron:build:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          REL_AI_TARGET_ARCH: x64
+      - name: Verify packaged Mac application and provenance
+        run: npm run verify:packaged -- --platform darwin --dir dist/build-check/mac
+        env:
+          REL_AI_TARGET_ARCH: x64
+      - name: Package unsigned application for review only
+        run: ditto -c -k --keepParent "dist/build-check/mac/Rel.AI MCP.app" "$RUNNER_TEMP/RelAI-RecoveryQA-UNSIGNED.zip"
+      - name: Upload QA artifact (not a signed installer)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: relai-recovery-macos-x64-unsigned-${{ github.run_number }}
+          path: ${{ runner.temp }}/RelAI-RecoveryQA-UNSIGNED.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
