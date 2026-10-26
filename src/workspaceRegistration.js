@@ -3,9 +3,10 @@ import * as path from 'node:path';
 
 import { getConfigPath, makeDefaultConfig, readConfig } from './config.js';
 import { withConfigEditLock } from './configEditLock.js';
-import { updateWorkspace } from './configEditor.js';
+import { updateWorkspace, validateAlias, workspaceAliasForPath } from './configEditor.js';
 import { workspaceMutationSafetySummary } from './mutationProcessOwnership.js';
 import { canonicalWorkspaceAuthority } from './workspaceOperationQueue.js';
+import { assertSafeWorkspaceRoot } from './workspaceSafety.js';
 
 const RESTART_NOTE = 'Rel.AI reads config changes live; no restart is needed. Restarting while a task runs a command kills that command and leaves its project folder blocked.';
 
@@ -66,7 +67,10 @@ function registerWorkspace(alias, workspacePath, options = {}) {
   const configPath = getConfigPath();
   const name = String(alias || '').trim();
   return withConfigEditLock(() => {
+    // The editor repeats these checks on write; running them first keeps --dry-run truthful.
+    validateAlias(name);
     assertWorkspaceDirectory(workspacePath);
+    assertSafeWorkspaceRoot(workspacePath);
     const before = configSnapshot(configPath);
     const current = before.exists ? readConfig() : makeDefaultConfig();
     const exists = Boolean(current.workspaces?.[name]);
@@ -76,6 +80,8 @@ function registerWorkspace(alias, workspacePath, options = {}) {
     if (!exists && options.update === true) {
       throw codedError('WORKSPACE_NOT_CONFIGURED', `Workspace '${name}' is not configured.`);
     }
+    const duplicateAlias = workspaceAliasForPath(current.workspaces, workspacePath, name);
+    if (duplicateAlias) throw codedError('WORKSPACE_PATH_DUPLICATE', `Project folder is already configured as workspace '${duplicateAlias}'.`);
     const folder = inspectWorkspaceFolder(current, name, workspacePath);
     const result = {
       ok: true,

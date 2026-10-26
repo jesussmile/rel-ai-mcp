@@ -67,6 +67,9 @@ try {
   assert.throws(() => registerWorkspace('file', path.join(tmp, 'file.txt')), code('WORKSPACE_PATH_NOT_DIRECTORY'));
   assert.throws(() => registerWorkspace('bad alias!', plain), /Workspace alias must be/);
   assert.throws(() => registerWorkspace('root', path.parse(tmp).root), /Unsafe workspace path refused/);
+  assert.throws(() => registerWorkspace('dup', other, { dryRun: true }), code('WORKSPACE_PATH_DUPLICATE'));
+  assert.throws(() => registerWorkspace('bad alias!', plain, { dryRun: true }), /Workspace alias must be/);
+  assert.throws(() => registerWorkspace('root', path.parse(tmp).root, { dryRun: true }), /Unsafe workspace path refused/);
   const dryRun = registerWorkspace('plain', plain, { dryRun: true });
   assert.equal(dryRun.ok, true);
   assert.equal(dryRun.dryRun, true);

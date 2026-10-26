@@ -164,4 +164,4 @@ function validateAlias(alias) {
   if (!/^[A-Za-z0-9._-]{1,80}$/.test(alias)) throw new Error("Workspace alias must be 1-80 characters using letters, numbers, dot, underscore, or dash.");
 }
 
-export { updateProjectAccess, updateWorkspace };
+export { updateProjectAccess, updateWorkspace, validateAlias, workspaceAliasForPath };
