@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { Command } from 'commander';
 import { readConfig, writeConfig, getConfigPath, makeDefaultConfig } from '../src/config.js';
 import * as productUx from '../src/productUx.js';
+import { inspectWorkspaceFolder, registerWorkspace } from '../src/workspaceRegistration.js';
 
 function printJson(value) {
   console.log(JSON.stringify(value, null, 2));
@@ -63,14 +64,25 @@ state
 const workspace = program.command('workspace').description('Manage authorized workspaces.');
 workspace
   .command('add <alias> <absolute-path>')
-  .description('Add or update an authorized workspace.')
-  .action((alias, workspacePath) => {
+  .description('Add an authorized workspace: validated, locked against other config edits, written atomically.')
+  .option('--update', 'Change an existing workspace instead of refusing.')
+  .option('--dry-run', 'Validate and report without writing.')
+  .option('--allow-blocked', "Add even if the folder's change lock is currently blocked.")
+  .action((alias, workspacePath, options) => {
+    const result = registerWorkspace(alias, workspacePath, {
+      update: options.update === true,
+      dryRun: options.dryRun === true,
+      allowBlocked: options.allowBlocked === true
+    });
+    printJson(result);
+    if (!result.ok) process.exitCode = 1;
+  });
+workspace
+  .command('check <absolute-path>')
+  .description("Report which workspaces share a folder's change lock and whether it is blocked. Read-only.")
+  .action(workspacePath => {
     if (!path.isAbsolute(workspacePath)) throw new Error('Workspace path must be absolute.');
-    const config = readConfig({ allowMissing: true });
-    config.workspaces = config.workspaces || {};
-    config.workspaces[alias] = { ...(config.workspaces[alias] || {}), path: workspacePath };
-    writeConfig(config);
-    console.log(`Added workspace '${alias}' -> ${workspacePath}`);
+    printJson(inspectWorkspaceFolder(readConfig({ allowMissing: true }), '', workspacePath));
   });
 
 try {

@@ -157,5 +157,6 @@ export const EVERYDAY_TEST_FILES = [
   "workflow-validation-reuse-unit.mjs",
   "workspace-management-unit.mjs",
   "workspace-operation-queue-unit.mjs",
-  "workspace-recovery-unit.mjs"
+  "workspace-recovery-unit.mjs",
+  "workspace-registration-unit.mjs"
 ];

@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { getConfigPath, makeDefaultContextConfig, publicConfigSummary, writeConfig } from './config.js';
+import { withConfigEditLock } from './configEditLock.js';
 import { assertSafeWorkspaceRoot } from './workspaceSafety.js';
 
 function objectOrEmpty(value) {
@@ -108,7 +109,7 @@ function updateWorkspace(current, payload = {}) {
   if (!handler) {
     throw new Error(`Unknown workspace action: ${action}. Allowed: ${Object.keys(WORKSPACE_ACTION_HANDLERS).join(", ")}.`);
   }
-  return handler(alias, payload, next);
+  return withConfigEditLock(() => handler(alias, payload, next));
 }
 
 function updateProjectAccess(current, payload = {}) {

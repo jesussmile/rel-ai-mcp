@@ -147,8 +147,15 @@ Useful development commands include:
 
 ```powershell
 npm run init-config
-npm run workspace:add
+npm run workspace:add -- <alias> <absolute-path> [--dry-run] [--update] [--allow-blocked]
+node bin/relai-mcp-config.js workspace check <absolute-path>
 ```
+
+`workspace add` uses the dashboard's validated workspace editor, takes the config edit lock, refuses an existing alias
+unless `--update` is passed, and refuses a folder whose change lock is blocked unless `--allow-blocked` is passed. Its
+JSON result lists the workspaces that share the folder's change lock: all folders inside one Git repository share one lock,
+so a command interrupted in any of them blocks changes in all of them. Rel.AI reads config changes live, so adding a
+workspace never needs a restart.
 
 Rel.AI discovers validation commands from the project's current manifests. Use `relai_validate` for explicit one-off checks and `relai_exec` for other one-shot commands. Durable work can run until it exits or is explicitly cancelled; taskless work retains a bounded safety timeout. Command aliases are not stored in Rel.AI configuration.
 
