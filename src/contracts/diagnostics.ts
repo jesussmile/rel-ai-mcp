@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const DIAGNOSTIC_RESET_TARGETS = Object.freeze(['history', 'runtime_logs', 'analytics'] as const);
+export const DIAGNOSTIC_RESET_TARGETS = Object.freeze(['history', 'runtime_logs', 'analytics', 'repair'] as const);
 export type DiagnosticResetTarget = typeof DIAGNOSTIC_RESET_TARGETS[number];
 export type DiagnosticSeverity = 'error' | 'warning' | 'info';
 

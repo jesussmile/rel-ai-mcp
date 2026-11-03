@@ -4,9 +4,15 @@ import * as path from 'node:path';
 
 const MAX_DEPTH = 6;
 const MAX_MANIFESTS = 2000;
+const MAX_SCANNED_DIRS = 500;
 const TOPOLOGY_RECHECK_MS = 250;
+const TOPOLOGY_CACHE_LIMIT = 256;
 const MANIFEST_NAMES = new Set(['package.json', 'pubspec.yaml', 'go.mod', 'Cargo.toml', 'pyproject.toml', 'requirements.txt', 'Makefile']);
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.nuxt', '.turbo', '.cache', '.relai', '.rel-ai', 'state']);
+const SKIP_DIRS = new Set([
+  '.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.nuxt', '.turbo', '.cache', '.relai', '.rel-ai', 'state',
+  '.venv', 'venv', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.dart_tool', '.gradle', 'target', 'obj', 'vendor',
+  '.codex_temp', '.agents', '.tasksync', 'downloads', 'georef', 'organized_charts', 'output', 'staging', 'tmp', 'work', 'reports', 'aip_library'
+]);
 const cache = new Map();
 
 function discoverRepositoryTopology(rootPath) {
@@ -36,8 +42,8 @@ function discoverRepositoryTopology(rootPath) {
   };
   if (collection.truncated) cache.delete(root);
   else {
-    cache.set(root, { signature, manifests, value, checkedAt: now });
-    if (cache.size > 32) cache.delete(cache.keys().next().value);
+    cache.set(root, { signature, manifests, value, checkedAt: Date.now() });
+    if (cache.size > TOPOLOGY_CACHE_LIMIT) cache.delete(cache.keys().next().value);
   }
   return structuredClone(value);
 }
@@ -46,8 +52,10 @@ function collectManifests(root) {
   const found = [];
   const queue = [{ absolute: root, depth: 0 }];
   let truncated = false;
-  while (queue.length) {
+  let scannedDirs = 0;
+  while (queue.length && scannedDirs < MAX_SCANNED_DIRS) {
     const current = queue.shift();
+    scannedDirs += 1;
     let entries;
     try { entries = fs.readdirSync(current.absolute, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {

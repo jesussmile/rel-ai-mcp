@@ -12,6 +12,7 @@ import { formatDuration, timeAgo } from '../../utils.js';
 import { buildTaskSemanticProgress } from '../../../taskSemanticProgress.js';
 import { completeDesktopSetup, desktopSetupSteps, dismissDesktopSetup, isDesktopSetupDismissed } from '../onboarding/index.js';
 import { CHATGPT_CONNECTOR_CREATE_URL, chatGptFirstPrompt, chatGptGuideSteps } from '../settings/connection-guidance.js';
+import { repairConnectionAndState } from '../settings/connection-recovery.js';
 import { loadAnalyticsData } from '../usage/data.js';
 import { desktopSetupState, homeAnalyticsView, overviewState, overviewWorkspaceStatus } from './index.js';
 
@@ -45,13 +46,34 @@ function HomeView({ data = {} }) {
 }
 
 function ConnectionHero({ state }) {
+  const [fixing, setFixing] = useState(false);
+  const fix = async () => {
+    if (fixing) return;
+    setFixing(true);
+    try {
+      const result = await repairConnectionAndState();
+      if (!result?.ok) {
+        toast(result?.error || 'Could not repair the connection and runtime state.', { variant: 'error' });
+        return;
+      }
+      toast(result.message || 'Connection and runtime state repaired.', { variant: 'success' });
+    } finally {
+      setFixing(false);
+    }
+  };
   return h('section', { className: `overview-hero overview-hero-compact ${state.tone}`, 'data-home-live-connection': '' },
     h('div', { className: 'overview-copy' },
       state.kicker ? h('div', { className: 'overview-kicker' }, state.kicker) : null,
       h('h2', { className: 'overview-title' }, state.title),
       state.description ? h('p', { className: 'overview-description' }, state.description) : null
     ),
-    h('a', { className: 'buttonlike secondary compact-button', href: routeMetadata('settings/connection').href }, 'View connection')
+    h('div', { className: 'overview-hero-actions' },
+      h('button', { className: 'secondary compact-button', type: 'button', 'data-repair-connection': '', disabled: fixing, onClick: () => void fix() },
+        h(Icon, { name: 'tools', size: 14 }),
+        h('span', null, fixing ? 'Fixing…' : 'Fix connection & state')
+      ),
+      h('a', { className: 'buttonlike secondary compact-button', href: routeMetadata('settings/connection').href }, 'View connection')
+    )
   );
 }
 

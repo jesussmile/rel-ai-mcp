@@ -9,7 +9,7 @@ import { toast } from '../../components/toast.js';
 import { getRouteSnapshot, subscribeRoute } from '../../router.js';
 
 import { timeAgo } from '../../utils.js';
-import { restartConnection } from './connection-recovery.js';
+import { repairConnectionAndState, restartConnection } from './connection-recovery.js';
 import { ResourceDiagnostics } from './resource-diagnostics.js';
 
 const h = React.createElement;
@@ -221,11 +221,26 @@ function DiagnosticsView({ runtime, runtimeCompatibility, workspace = '' }) {
       toast(messageOf(error), { variant: 'error' });
     } finally { setBusy(''); }
   };
+  const fixState = async () => {
+    setBusy('repair');
+    try {
+      const result = await repairConnectionAndState();
+      if (!result?.ok) throw new Error(result?.error || 'Could not repair the connection and runtime state.');
+      toast(result.message || 'Connection and runtime state repaired.', { variant: 'success' });
+      await load({ silent: true, fresh: true });
+    } catch (error) {
+      toast(messageOf(error), { variant: 'error' });
+    } finally { setBusy(''); }
+  };
 
   return h('div', { className: 'settings-content system-content' },
     h('div', { className: 'diagnostic-page', 'data-diagnostics-react': '' },
       h('div', { className: 'section-head diagnostic-page-head' },
         h('div', { className: 'section-head-actions diagnostic-page-actions' },
+          h('button', { className: 'secondary', type: 'button', 'data-repair-connection': '', disabled: busy === 'repair', onClick: () => void fixState() },
+            h(Icon, { name: 'tools', size: 14 }),
+            h('span', null, busy === 'repair' ? 'Fixing…' : 'Fix connection & state')
+          ),
           h('button', { className: 'secondary', type: 'button', disabled: !report?.reportText || busy === 'copy', onClick: () => void copyReport() },
             h(Icon, { name: 'copy', size: 14 }),
             h('span', null, busy === 'copy' ? 'Copying…' : 'Copy report')

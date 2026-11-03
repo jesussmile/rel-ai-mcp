@@ -2,7 +2,7 @@
 // Counters and summaries follow legacy writes too, through SQLite triggers.
 function summaryPayload(payload: string): string {
   return `CASE WHEN json_valid(${payload}) THEN json_set(
-    json_remove(${payload}, '$.events', '$.workflowEvidence'), '$.events',
+    json_remove(${payload}, '$.events', '$.workflowEvidence', '$.backgroundOperations', '$.backgroundOperation', '$.eventCounterReceipts'), '$.events',
     CASE WHEN json_type(${payload}, '$.events') = 'array'
       AND json_array_length(json_extract(${payload}, '$.events')) = 1
       AND json_type(${payload}, '$.events[0]') = 'object'

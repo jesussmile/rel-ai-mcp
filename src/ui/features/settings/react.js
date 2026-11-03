@@ -10,7 +10,7 @@ import { DEVELOPER_FEATURES, readDeveloperFeatureEnabled, readDeveloperOptionsUn
 import { getUiPreferences, setThemePreference } from '../../preferences.js';
 import { currentRoutePath } from '../../router.js';
 import { chatGptFirstPrompt, chatGptGuideSteps, CHATGPT_CONNECTOR_CREATE_URL } from './connection-guidance.js';
-import { restartConnection } from './connection-recovery.js';
+import { repairConnectionAndState, restartConnection } from './connection-recovery.js';
 import { supportPolicyView } from './desktop-update-policy.js';
 
 const h = React.createElement;
@@ -118,6 +118,7 @@ function SettingsField({ label, help = '', error = '', children, inputId }) {
 
 function ConnectionPage({ data }) {
   const controlsRef = useRef(null);
+  const [fixing, setFixing] = useState(false);
   const state = connectionStateFor(data);
   const summary = connectionSummary(state);
   const action = connectionPrimaryAction(state);
@@ -151,6 +152,20 @@ function ConnectionPage({ data }) {
     }
     toast('Connection retry started. Rel.AI is checking the Secure MCP Tunnel.', { variant: 'success' });
   };
+  const fix = async () => {
+    if (fixing) return;
+    setFixing(true);
+    try {
+      const result = await repairConnectionAndState();
+      if (!result?.ok) {
+        toast(result?.error || 'Could not repair the connection and runtime state.', { variant: 'error' });
+        return;
+      }
+      toast(result.message || 'Connection and runtime state repaired.', { variant: 'success' });
+    } finally {
+      setFixing(false);
+    }
+  };
   return h('div', { className: 'section connection-page', 'data-connection-react': '' },
     h('section', { className: `card connection-summary-card ${summary.tone}` },
       h('div', { className: 'card-head' }, h(StatusPill, { label: summary.label, tone: summary.tone })),
@@ -159,9 +174,13 @@ function ConnectionPage({ data }) {
         action.kind !== 'none' ? h('div', { className: 'connection-primary-action' }, connectionActionElement(action, { openSetup, openSettings, retry })) : null
       )
     ),
-    action.kind !== 'none' ? h('div', { className: 'connection-support-row' },
-      action.href === '#diagnostics' ? null : h('a', { className: 'buttonlike secondary compact-button', href: '#diagnostics' }, 'Troubleshooting')
-    ) : null,
+    h('div', { className: 'connection-support-row' },
+      h('button', { className: 'secondary compact-button', type: 'button', 'data-repair-connection': '', disabled: fixing, onClick: () => void fix() },
+        h(Icon, { name: 'tools', size: 14 }),
+        h('span', null, fixing ? 'Fixing…' : 'Fix connection & state')
+      ),
+      action.kind !== 'none' && action.href === '#diagnostics' ? null : h('a', { className: 'buttonlike secondary compact-button', href: '#diagnostics' }, 'Troubleshooting')
+    ),
     h(ConnectionLayers, { state, summary }),
     guideMode ? h(ConnectionGuide, { mode: guideMode, tunnelId, workspaceAlias }) : null,
     h('section', { id: 'connectionControls', className: 'connection-controls-section', ref: controlsRef },

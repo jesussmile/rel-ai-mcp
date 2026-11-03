@@ -17,7 +17,7 @@ import { detectPackageJsonChecks } from './checkDetectionNpm.js';
 // Each detection re-reads and re-parses package.json. Cache per (root, level) against
 // the same manifest stat signature command discovery uses, so any manifest edit is
 // still picked up immediately.
-const CHECK_CACHE_LIMIT = 64;
+const CHECK_CACHE_LIMIT = 256;
 const checkCache = new Map();
 
 function detectVerifyChecks(root, level) {

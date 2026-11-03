@@ -67,6 +67,13 @@ try {
   assert.equal(resetCalls, 1);
   assert.equal(fs.readFileSync(auditPath, 'utf8'), '');
   assert.equal(fs.existsSync(`${auditPath}.1`), false);
+
+  const repaired = await post({ target: 'repair', confirm: true });
+  const repairPayload = await repaired.json();
+  assert.equal(repaired.status, 200);
+  assert.equal(repairPayload.ok, true);
+  assert.equal(repairPayload.target, 'repair');
+  assert.equal(typeof repairPayload.repair?.repairedTasks, 'number');
 } finally {
   if (server?.listening) await new Promise(resolve => server.close(resolve));
   if (previousConfig == null) delete process.env.REL_AI_MCP_CONFIG;

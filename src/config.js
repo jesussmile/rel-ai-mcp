@@ -72,7 +72,7 @@ function makeDefaultConfig() {
 // memoize per-config work by object identity.
 let configCache = null;
 const CONFIG_CACHE_RECHECK_MS = 250;
-const PUBLIC_CONFIG_SUMMARY_TTL_MS = 1000;
+const PUBLIC_CONFIG_SUMMARY_TTL_MS = 5000;
 let publicConfigSummaryCache = null;
 
 function readConfig(options = {}) {
@@ -542,7 +542,7 @@ function publicConfigSummary(config) {
       };
     }).sort((a, b) => a.alias.localeCompare(b.alias))
   };
-  publicConfigSummaryCache = { config, value, expiresAt: now + PUBLIC_CONFIG_SUMMARY_TTL_MS };
+  publicConfigSummaryCache = { config, value, expiresAt: Date.now() + PUBLIC_CONFIG_SUMMARY_TTL_MS };
   return value;
 }
 

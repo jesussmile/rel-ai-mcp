@@ -1,4 +1,4 @@
-import { requestDashboardRefresh } from '../../api.js';
+import { postJson, requestDashboardRefresh } from '../../api.js';
 
 function connectionRestartResult(status = {}) {
   const tunnelStatus = String(status?.tunnelStatus || '');
@@ -29,5 +29,32 @@ export async function restartConnection() {
     return connectionRestartResult(status);
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error || 'Connection retry failed.') };
+  }
+}
+
+export async function repairConnectionAndState() {
+  try {
+    const result = await postJson('/api/diagnostics/reset', { target: 'repair', confirm: true }, { timeout: 25000 });
+    if (typeof window.relaiDesktop?.restartConnection === 'function') {
+      try {
+        await window.relaiDesktop.restartConnection();
+      } catch {
+        // Keep the backend state repair outcome even if the desktop tunnel does not need a restart.
+      }
+    }
+    requestDashboardRefresh();
+    if (!result?.ok) {
+      return {
+        ok: false,
+        error: result?.error || 'Could not repair the Rel.AI connection and runtime state.'
+      };
+    }
+    return {
+      ok: true,
+      repair: result.repair || null,
+      message: result.message || 'Connection and runtime state repaired.'
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error || 'State repair failed.') };
   }
 }

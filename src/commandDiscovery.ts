@@ -79,7 +79,7 @@ function _discoverPython(discovered: DiscoveredCommands, root: string): void {
   discovered['python:lint'] = 'python -m flake8';
 }
 
-const DISCOVERY_CACHE_LIMIT = 32;
+const DISCOVERY_CACHE_LIMIT = 256;
 const MAX_DISCOVERY_WARNINGS = 8;
 const discoveryCache = new Map<string, DiscoveryCacheEntry>();
 

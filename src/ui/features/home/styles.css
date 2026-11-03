@@ -8,9 +8,10 @@
 .overview-hero-compact .overview-copy { max-width: 760px; }
 .overview-hero-compact .overview-title { margin-top: 4px; font-size: clamp(22px, 3vw, 30px); }
 .overview-hero-compact .overview-description { margin-top: 6px; }
+.overview-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 @media (max-width: 640px) {
   .overview-hero-compact { align-items: stretch; flex-direction: column; }
-  .overview-hero-compact > a { width: 100%; }
+  .overview-hero-compact > a, .overview-hero-actions > a, .overview-hero-actions > button { width: 100%; }
 }
 
 @layer components {
