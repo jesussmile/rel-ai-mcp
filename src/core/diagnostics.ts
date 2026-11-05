@@ -120,7 +120,7 @@ export async function getDiagnosticsReport(
 
 export async function resetDiagnostics(
   target: DiagnosticResetTarget,
-  options: DiagnosticsRuntimeOptions
+  options: DiagnosticsRuntimeOptions = {}
 ): Promise<DiagnosticResetOutcome> {
   if (target === 'repair') {
     return repairRuntimeState(options);

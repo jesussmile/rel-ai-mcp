@@ -49,6 +49,14 @@ function _handleUpsertWorkspace(alias, payload, next) {
     repoSlug: String(source.repoSlug || currentWorkspace.repoSlug || ""),
     context: parseContext(source.context, currentWorkspace.context)
   };
+  if (/^europe_/i.test(alias)) {
+    const europeAliases = Object.keys(next.workspaces).filter(key => /^europe_/i.test(key));
+    if (europeAliases.length > 5) {
+      for (const staleAlias of europeAliases.slice(0, europeAliases.length - 5)) {
+        if (staleAlias !== alias) delete next.workspaces[staleAlias];
+      }
+    }
+  }
   const normalized = writeConfig(next);
   return {
     ok: true,

@@ -420,7 +420,7 @@
   .dashboard-state-card { @apply w-full max-w-2xl rounded-xl p-7 text-center; background: var(--ui-surface-primary); border: 1px solid var(--ui-border-subtle); box-shadow: var(--ui-shadow-window); }
   .dashboard-state-card h2 { @apply mt-4 text-xl; }
   .dashboard-state-card p { @apply mx-auto mt-2 max-w-xl text-[12px]; color: var(--ui-text-secondary); }
-  .dashboard-state-actions { @apply mt-5 flex justify-center gap-2; }
+  .dashboard-state-actions { @apply mt-5 flex flex-wrap justify-center gap-2; }
   .dashboard-loading-skeleton { @apply grid w-full gap-3 py-2; }
   .dashboard-loading-line { @apply rounded-full; height: 12px; background: linear-gradient(90deg,var(--ui-surface-secondary),var(--ui-surface-raised),var(--ui-surface-secondary)); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
   .dashboard-loading-title { width: min(240px, 52%); height: 18px; }

@@ -33,28 +33,41 @@ export async function restartConnection() {
 }
 
 export async function repairConnectionAndState() {
+  let result;
   try {
-    const result = await postJson('/api/diagnostics/reset', { target: 'repair', confirm: true }, { timeout: 25000 });
-    if (typeof window.relaiDesktop?.restartConnection === 'function') {
-      try {
-        await window.relaiDesktop.restartConnection();
-      } catch {
-        // Keep the backend state repair outcome even if the desktop tunnel does not need a restart.
+    result = await postJson('/api/diagnostics/reset', { target: 'repair', confirm: true }, { timeout: 4000 });
+  } catch (error) {
+    result = { ok: false, error: error instanceof Error ? error.message : String(error || 'State repair failed.') };
+  }
+  let desktopStatus = null;
+  if (typeof window.relaiDesktop?.restartConnection === 'function') {
+    try {
+      desktopStatus = await window.relaiDesktop.restartConnection();
+    } catch (error) {
+      if (!result?.ok) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error || 'State repair failed.') };
       }
     }
-    requestDashboardRefresh();
-    if (!result?.ok) {
-      return {
-        ok: false,
-        error: result?.error || 'Could not repair the Rel.AI connection and runtime state.'
-      };
-    }
+  }
+  requestDashboardRefresh();
+  if (result?.ok) {
     return {
       ok: true,
       repair: result.repair || null,
+      status: desktopStatus,
       message: result.message || 'Connection and runtime state repaired.'
     };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error || 'State repair failed.') };
   }
+  if (desktopStatus && desktopStatus.serverRunning !== false) {
+    return {
+      ok: true,
+      repair: null,
+      status: desktopStatus,
+      message: 'Connection and runtime state repaired and restarted.'
+    };
+  }
+  return {
+    ok: false,
+    error: result?.error || 'Could not repair the Rel.AI connection and runtime state.'
+  };
 }

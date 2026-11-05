@@ -990,7 +990,43 @@ async function createDesktopHost(options = {}) {
     return serviceRuntime.startServer();
   }
 
-  function restartConnection() {
+  async function restartConnection() {
+    let needsServiceRestart = false;
+    try {
+      const diagnosticsModule = await importResourceModule('src/core/diagnostics.ts');
+      const repairResult = await diagnosticsModule.resetDiagnostics('repair', {});
+      const repair = repairResult?.repair;
+      if (repair && (repair.repairedTasks > 0 || repair.prunedWorkspaces > 0 || repair.compactedSummaries > 0 || repair.cleanedEntries > 0)) {
+        needsServiceRestart = true;
+        runtimeLogs.append(repairResult.message || 'Connection and runtime state repaired.', {
+          level: 'info',
+          source: 'desktop-lifecycle'
+        });
+      }
+    } catch (error) {
+      runtimeLogs.append(`Runtime state repair check failed: ${formatError(error)}`, {
+        level: 'warning',
+        source: 'desktop-lifecycle'
+      });
+    }
+    if (!needsServiceRestart && serviceRuntime.isListening() && currentStatus?.localUrl) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1500);
+        try {
+          const response = await fetch(`${currentStatus.localUrl}/health`, { signal: controller.signal });
+          if (!response.ok) needsServiceRestart = true;
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch {
+        needsServiceRestart = true;
+      }
+    }
+    if (needsServiceRestart) {
+      await stopServer({ silent: true, preserveDashboard: true });
+      return startServer();
+    }
     return tunnelRecoverySupervisor?.retryNow() || serviceRuntime.restartConnection();
   }
 

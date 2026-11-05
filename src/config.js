@@ -139,11 +139,23 @@ function writeConfig(config, options = {}) {
   return normalized;
 }
 
+function pruneExcessBatchWorkspaces(config) {
+  const workspaces = config?.workspaces;
+  if (!workspaces || typeof workspaces !== 'object') return config;
+  const europeAliases = Object.keys(workspaces).filter(key => /^europe_/i.test(key));
+  if (europeAliases.length <= 5) return config;
+  const nextWorkspaces = { ...workspaces };
+  for (const staleAlias of europeAliases.slice(0, europeAliases.length - 5)) {
+    delete nextWorkspaces[staleAlias];
+  }
+  return writeConfig({ ...config, workspaces: nextWorkspaces });
+}
+
 function ensureConfig() {
   const configPath = getConfigPath();
   if (fs.existsSync(configPath)) {
     try {
-      return readConfig();
+      return pruneExcessBatchWorkspaces(readConfig());
     } catch (error) {
       if (!String(error?.message || '').startsWith('Config file is corrupted or empty:')) throw error;
       const invalidPath = `${configPath}.invalid-${Date.now()}`;
@@ -160,7 +172,7 @@ function ensureConfig() {
   } catch (error) {
     // Another startup path may have created the file between the existence check
     // and the guarded write. In that case, use the newly created config.
-    if (fs.existsSync(configPath)) return readConfig();
+    if (fs.existsSync(configPath)) return pruneExcessBatchWorkspaces(readConfig());
     throw error;
   }
 }

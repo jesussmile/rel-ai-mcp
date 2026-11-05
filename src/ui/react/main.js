@@ -17,8 +17,10 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Icon } from '../components/icons.js';
 import { StatusPill } from '../components/pill.js';
+import { toast } from '../components/toast.js';
 import { connectionLayerViews, connectionStateFor, connectionSummary } from '../connection-state.js';
 import { DEVELOPER_FEATURE_CHANGE_EVENT, DEVELOPER_FEATURES, readDeveloperFeatureEnabled } from '../developer-mode.js';
+import { repairConnectionAndState } from '../features/settings/connection-recovery.js';
 import { classifyTaskActivity } from '../../taskActivityPresentation.js';
 import {
   APPLICATION_NAV_ITEMS,
@@ -218,6 +220,9 @@ export function showShellRecoveryNotice(options = {}) {
       primaryLabel: String(options.primaryLabel || ''),
       primaryBusyLabel: String(options.primaryBusyLabel || options.primaryLabel || ''),
       onPrimary: typeof options.onPrimary === 'function' ? options.onPrimary : null,
+      repairLabel: String(options.repairLabel || 'Fix connection & state'),
+      repairBusyLabel: String(options.repairBusyLabel || 'Fixing connection & state…'),
+      onRepair: typeof options.onRepair === 'function' ? options.onRepair : runShellRepair,
       secondaryLabel: String(options.secondaryLabel || ''),
       secondaryBusyLabel: String(options.secondaryBusyLabel || options.secondaryLabel || ''),
       onSecondary: typeof options.onSecondary === 'function' ? options.onSecondary : null,
@@ -240,12 +245,21 @@ export function showShellDashboardState(options = {}) {
       primaryLabel: String(options.primaryLabel || ''),
       primaryBusyLabel: String(options.primaryBusyLabel || options.primaryLabel || ''),
       onPrimary: typeof options.onPrimary === 'function' ? options.onPrimary : null,
+      repairLabel: String(options.repairLabel || 'Fix connection & state'),
+      repairBusyLabel: String(options.repairBusyLabel || 'Fixing connection & state…'),
+      onRepair: typeof options.onRepair === 'function' ? options.onRepair : runShellRepair,
       secondaryLabel: String(options.secondaryLabel || ''),
       secondaryBusyLabel: String(options.secondaryBusyLabel || options.secondaryLabel || ''),
       onSecondary: typeof options.onSecondary === 'function' ? options.onSecondary : null,
       diagnosticsHref: String(options.diagnosticsHref || '#diagnostics')
     }
   });
+}
+
+async function runShellRepair() {
+  const result = await repairConnectionAndState();
+  if (result.ok) toast(result.message || 'Connection and runtime state repaired.', { variant: 'success' });
+  else toast(result.error || 'Could not repair the Rel.AI connection and runtime state.', { variant: 'error' });
 }
 
 export function clearShellDashboardState() {
@@ -418,6 +432,7 @@ function DashboardShell({ desktop = null, onAddWorkspace = null } = {}) {
               h('span', { className: 'command-trigger-label' }, 'Quick navigation'),
               h('kbd', null, shortcut)
             ),
+            h(TopRepairButton),
             h(UpdateStatusPill),
             h(StatusPill, {
               id: 'connectionStatus',
@@ -702,12 +717,36 @@ function runWindowAction(action, setState) {
   }).catch(debugError);
 }
 
+function TopRepairButton() {
+  const [busy, setBusy] = useState(false);
+  const handleRepair = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await runShellRepair();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return h('button', {
+    className: 'secondary',
+    id: 'topRepairConnectionBtn',
+    type: 'button',
+    'data-repair-connection': 'true',
+    disabled: busy,
+    title: 'Repair stuck tasks, prune stale workspaces, and restart the connection',
+    onClick: () => { void handleRepair(); }
+  }, busy ? 'Fixing…' : 'Fix connection & state');
+}
+
 const RouteOutlet = memo(function RouteOutlet({ route, routeState }) {
-  if (routeState) {
+  const allowOfflineRoute = routeState?.kind === 'error' && (route.section === 'settings' || route.section === 'diagnostics');
+  if (routeState && !allowOfflineRoute) {
     return h('div', { id: 'routeRoot', className: 'route-root' }, h(DashboardState, routeState));
   }
   const Component = reactRouteComponents.get(route.section) || reactRouteComponents.get('home');
   return h('div', { id: 'routeRoot', className: 'route-root' },
+    allowOfflineRoute ? h(DashboardState, routeState) : null,
     h(RouteErrorBoundary, { routeKey: route.key },
       h(Suspense, {
         key: route.section,
@@ -744,6 +783,7 @@ class RouteErrorBoundary extends React.Component {
       primaryLabel: 'Retry page',
       primaryBusyLabel: 'Reloading page…',
       onPrimary: retryActiveRoute,
+      onRepair: runShellRepair,
       diagnosticsHref: '#diagnostics'
     });
   }
@@ -756,7 +796,21 @@ function retryActiveRoute() {
   return undefined;
 }
 
-function DashboardState({ kind = 'loading', title, description, primaryLabel = '', primaryBusyLabel = '', onPrimary = null, secondaryLabel = '', secondaryBusyLabel = '', onSecondary = null, diagnosticsHref = '' }) {
+function DashboardState({
+  kind = 'loading',
+  title,
+  description,
+  primaryLabel = '',
+  primaryBusyLabel = '',
+  onPrimary = null,
+  repairLabel = 'Fix connection & state',
+  repairBusyLabel = 'Fixing connection & state…',
+  onRepair = null,
+  secondaryLabel = '',
+  secondaryBusyLabel = '',
+  onSecondary = null,
+  diagnosticsHref = ''
+}) {
   const [busy, setBusy] = useState('');
   const loading = kind === 'loading';
   const run = async (key, action) => {
@@ -791,6 +845,7 @@ function DashboardState({ kind = 'loading', title, description, primaryLabel = '
     h('p', null, description),
     h('div', { className: 'dashboard-state-actions' },
       onPrimary ? h('button', { className: 'primary', type: 'button', disabled: Boolean(busy), onClick: () => { void run('primary', onPrimary); } }, busy === 'primary' ? primaryBusyLabel : primaryLabel) : null,
+      onRepair ? h('button', { className: 'secondary', type: 'button', 'data-repair-connection': 'true', disabled: Boolean(busy), onClick: () => { void run('repair', onRepair); } }, busy === 'repair' ? repairBusyLabel : repairLabel) : null,
       onSecondary ? h('button', { className: 'secondary', type: 'button', disabled: Boolean(busy), onClick: () => { void run('secondary', onSecondary); } }, busy === 'secondary' ? secondaryBusyLabel : secondaryLabel) : null,
       diagnosticsHref ? h('a', { className: 'buttonlike secondary', href: diagnosticsHref }, 'Open Troubleshooting') : null
     )
@@ -865,6 +920,13 @@ function RecoveryNotice({ recovery }) {
         disabled: Boolean(busy),
         onClick: () => { void run('primary', recovery.onPrimary); }
       }, busy === 'primary' ? recovery.primaryBusyLabel : recovery.primaryLabel) : null,
+      recovery.onRepair ? h('button', {
+        className: 'secondary',
+        type: 'button',
+        'data-repair-connection': 'true',
+        disabled: Boolean(busy),
+        onClick: () => { void run('repair', recovery.onRepair); }
+      }, busy === 'repair' ? (recovery.repairBusyLabel || 'Fixing connection & state…') : (recovery.repairLabel || 'Fix connection & state')) : null,
       recovery.onSecondary ? h('button', {
         className: 'secondary',
         type: 'button',
@@ -1026,6 +1088,14 @@ function buildCommands(data, desktop, extensionsEnabled, onAddWorkspace, closePa
       setThemePreference(current === 'light' ? 'dark' : 'light');
       closePalette();
     }
+  });
+  commands.push({
+    id: 'fix-connection-state',
+    label: 'Fix connection & state',
+    description: 'Repair stuck tasks, prune stale workspaces, and restart the connection.',
+    group: 'Action',
+    searchAliases: 'fix repair connection state stuck reset',
+    run: async () => { closePalette(); await runShellRepair(); }
   });
   if (typeof desktop?.restartConnection === 'function') {
     commands.push({

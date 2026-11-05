@@ -8,6 +8,7 @@ import { normalizeRouteKey } from './ui/route-policy.js';
 import { closeDrawer } from './ui/components/drawer.js';
 import { createDashboardClock } from './ui/clock.js';
 import { syncDesktopSetupState } from './ui/features/onboarding/index.js';
+import { repairConnectionAndState } from './ui/features/settings/connection-recovery.js';
 
 initUiPreferences();
 
@@ -94,6 +95,8 @@ async function boot() {
   }
   initDesktopBridge();
   window.addEventListener('relai:route-change', closeDrawer);
+  window.addEventListener('relai:dashboard-refresh', () => doRefresh({ source: 'local-change' }));
+  window.addEventListener('relai:desktop-status-refresh', event => applyDesktopStatus(event.detail));
   if (initial && initial.ok !== false) {
     activateRouter();
     updateShell(initial);
@@ -102,8 +105,6 @@ async function boot() {
     const refreshed = await recoverDashboard({ source: 'boot' });
     if (refreshed?.ok !== false && !_routerReady) activateRouter();
   }
-  window.addEventListener('relai:dashboard-refresh', () => doRefresh({ source: 'local-change' }));
-  window.addEventListener('relai:desktop-status-refresh', event => applyDesktopStatus(event.detail));
   document.addEventListener('visibilitychange', () => { void handleDashboardVisibility(); });
   initEvents(liveOnEvent, liveStateChange);
   startSSE();
@@ -232,6 +233,8 @@ function renderRefreshFailure(data = {}) {
 function showDashboardFailure(title, description, data = {}) {
   const recovery = recoveryAction(data);
   const canRelaunch = typeof window.relaiDesktop?.relaunchApp === 'function';
+  void preloadReactRoutes('settings');
+  void preloadReactRoutes('diagnostics');
   showShellDashboardState({
     kind: 'error',
     title,
@@ -239,6 +242,9 @@ function showDashboardFailure(title, description, data = {}) {
     primaryLabel: recovery.label,
     primaryBusyLabel: recovery.busyLabel,
     onPrimary: () => runDashboardRecovery(recovery, data),
+    repairLabel: 'Fix connection & state',
+    repairBusyLabel: 'Fixing connection & state…',
+    onRepair: () => runDashboardRepair(data),
     secondaryLabel: canRelaunch ? 'Restart Rel.AI' : '',
     secondaryBusyLabel: 'Restarting Rel.AI…',
     onSecondary: canRelaunch ? runAppRelaunch : null,
@@ -256,6 +262,9 @@ function showRecoveryNotice(title, description, data = {}) {
     primaryLabel: recovery.label,
     primaryBusyLabel: recovery.busyLabel,
     onPrimary: () => runDashboardRecovery(recovery, data),
+    repairLabel: 'Fix connection & state',
+    repairBusyLabel: 'Fixing connection & state…',
+    onRepair: () => runDashboardRepair(data),
     secondaryLabel: canRelaunch ? 'Restart Rel.AI' : '',
     secondaryBusyLabel: 'Restarting Rel.AI…',
     onSecondary: canRelaunch ? () => runAppRelaunch() : null,
@@ -296,6 +305,16 @@ async function runDashboardRecovery(recovery, data) {
       if (status) applyDesktopStatus(status);
     }
     await recoverDashboard({ source: 'manual-recovery' });
+  } catch (error) {
+    renderRefreshFailure({ ...data, ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function runDashboardRepair(data) {
+  try {
+    const result = await repairConnectionAndState();
+    if (result?.status) applyDesktopStatus(result.status);
+    await recoverDashboard({ source: 'manual-repair' });
   } catch (error) {
     renderRefreshFailure({ ...data, ok: false, error: error instanceof Error ? error.message : String(error) });
   }
